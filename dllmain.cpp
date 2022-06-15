@@ -33,8 +33,10 @@ static void Main(HMODULE hModule)
 
     printf("%p\n", scanner.GetAs<void*>());
 
-    Memcury::Hook detour(scanner.GetAs<void*>(), ThrowDiceTurnDecisionFormatter_SerializeHook);
+    Memcury::Hook detour(&(void*&)ThrowDiceTurnDecisionFormatter_Serialize, ThrowDiceTurnDecisionFormatter_SerializeHook);
     detour.Commit();
+
+    printf("%p\n", ThrowDiceTurnDecisionFormatter_Serialize);
 }
 
 bool DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved)

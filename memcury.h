@@ -80,7 +80,8 @@ namespace Memcury
             NONE = 0x00
         };
 
-        constexpr int SIZE_OF_JMP_INSTRUCTION = 5;
+        constexpr int SIZE_OF_JMP_RELATIVE_INSTRUCTION = 5;
+        constexpr int SIZE_OF_JMP_ABSLOUTE_INSTRUCTION = 13;
 
         constexpr const char* MnemonicToString(MNEMONIC e) throw()
         {
@@ -448,6 +449,7 @@ namespace Memcury
                 if (found)
                 {
                     add = reinterpret_cast<uintptr_t>(&scanBytes[i]);
+                    break;
                 }
             }
 
@@ -534,13 +536,20 @@ namespace Memcury
 
             for (auto i = 0; forward ? (i < 2048) : (i > -2048); forward ? i++ : i--)
             {
+                bool found = true;
                 for (auto j = 0ul; j < s; ++j)
                 {
                     if (scanBytes[i + j] != d[j] && d[j] != -1)
                     {
-                        _address = &scanBytes[i];
+                        found = false;
                         break;
                     }
+                }
+
+                if (found)
+                {
+                    _address = &scanBytes[i];
+                    break;
                 }
             }
 
@@ -591,12 +600,23 @@ namespace Memcury
         }
     };
 
-    // Based on http://kylehalladay.com/blog/2020/11/13/Hooking-By-Example.html
     class Hook
     {
+        void** originalFunctionPtr;
         PE::Address originalFunction;
         PE::Address hookFunction;
+        PE::Address allocatedPage;
         std::vector<uint8_t> restore;
+
+        auto PointToCodeIfNot(PE::Address& ptr)
+        {
+            auto bytes = ptr.GetAs<std::uint8_t*>();
+
+            if (ASM::byteIsA(bytes[0], ASM::MNEMONIC::JMP_REL32))
+            {
+                ptr = bytes + 5 + *(int32_t*)&bytes[1];
+            }
+        }
 
         void* AllocatePageNearAddress(void* targetAddr)
         {
@@ -650,12 +670,7 @@ namespace Memcury
 
             auto destination64 = (uint64_t)destination;
             memcpy(&absJumpInstructions[2], &destination64, sizeof(destination64));
-
-            printf("jumpLocation: %p\n", jumpLocation);
-            memcpy(jumpLocation, restore.data(), restore.size());
-            memcpy((void*)(__int64(jumpLocation) + restore.size()), absJumpInstructions, sizeof(absJumpInstructions));
-
-            // memcpy(jumpLocation, absJumpInstructions, sizeof(absJumpInstructions));
+            memcpy(jumpLocation, absJumpInstructions, sizeof(absJumpInstructions));
         }
 
         auto PrepareRestore()
@@ -663,9 +678,7 @@ namespace Memcury
             Scanner scanner(originalFunction);
             scanner.ScanFor({ 0x48, 0x83, 0xEC }); // sub rsp
 
-            printf("ScanFor: %p\n", scanner.GetAs<void*>());
-
-            auto restoreSize = 6; // scanner.Get() - originalFunction.Get();
+            auto restoreSize = scanner.Get() - originalFunction.Get();
 
             Safety::Assert(restoreSize > 0 && restoreSize < 0x100, "Could not find sub rsp");
 
@@ -675,28 +688,45 @@ namespace Memcury
                 restore.push_back(originalFunction.GetAs<uint8_t*>()[i]);
             }
 
-            printf("restoreSize: %i %i\n", restoreSize, restore.size());
-
-            memcpy(restore.data(), originalFunction.GetAs<void*>(), ASM::SIZE_OF_JMP_INSTRUCTION);
-
             return restoreSize;
+        }
+
+        auto WriteRestore()
+        {
+            auto restorePtr = allocatedPage + ASM::SIZE_OF_JMP_ABSLOUTE_INSTRUCTION + 2;
+
+            memcpy(restorePtr.GetAs<void*>(), restore.data(), restore.size());
+
+            *originalFunctionPtr = restorePtr.GetAs<void*>();
+
+            // Write a jump back to where the execution should resume
+            restorePtr.AbsoluteOffset((uint32_t)restore.size());
+
+            auto contuineExecution = originalFunction + restore.size();
+
+            WriteAbsoluteJump(restorePtr.GetAs<void*>(), contuineExecution.GetAs<void*>());
         }
 
         auto PrepareJMPInstruction(uint64_t dst)
         {
             uint8_t bytes[5] = { ASM::Mnemonic("JMP_REL32"), 0x0, 0x0, 0x0, 0x0 };
 
-            const uint64_t relAddr = dst - (originalFunction.Get() + ASM::SIZE_OF_JMP_INSTRUCTION);
+            const uint64_t relAddr = dst - (originalFunction.Get() + ASM::SIZE_OF_JMP_RELATIVE_INSTRUCTION);
             memcpy(bytes + 1, &relAddr, 4);
 
             return bytes;
         }
 
     public:
-        Hook(void* originalFunction, void* hookFunction)
+        Hook(void** originalFunction, void* hookFunction)
         {
-            this->originalFunction = originalFunction;
+            this->originalFunctionPtr = originalFunction;
+
+            this->originalFunction = *originalFunction;
             this->hookFunction = hookFunction;
+
+            PointToCodeIfNot(this->originalFunction);
+            PointToCodeIfNot(this->hookFunction);
         };
 
         auto Commit()
@@ -705,17 +735,39 @@ namespace Memcury
 
             auto restoreSize = PrepareRestore();
 
-            void* relayFuncMemory = AllocatePageNearAddress(fnStart);
+            allocatedPage = AllocatePageNearAddress(fnStart);
 
-            WriteAbsoluteJump(relayFuncMemory, hookFunction.GetAs<void*>());
+            memset(allocatedPage.GetAs<void*>(), ASM::MNEMONIC::INT3, 0x1000);
+
+            WriteAbsoluteJump(allocatedPage.GetAs<void*>(), hookFunction.GetAs<void*>());
 
             DWORD oldProtect;
             VirtualProtect(fnStart, 1024, PAGE_EXECUTE_READWRITE, &oldProtect);
 
-            auto jmpInstruction = PrepareJMPInstruction((uint64_t)relayFuncMemory);
+            auto jmpInstruction = PrepareJMPInstruction(allocatedPage.Get());
+
+            WriteRestore();
 
             memset(fnStart, ASM::MNEMONIC::INT3, restoreSize);
-            memcpy(fnStart, jmpInstruction, ASM::SIZE_OF_JMP_INSTRUCTION);
+            memcpy(fnStart, jmpInstruction, ASM::SIZE_OF_JMP_RELATIVE_INSTRUCTION);
+
+            return true;
+        }
+
+        auto Revert()
+        {
+            auto fnStart = originalFunction.GetAs<void*>();
+
+            DWORD oldProtect;
+            VirtualProtect(fnStart, 1024, PAGE_EXECUTE_READWRITE, &oldProtect);
+
+            memcpy(fnStart, restore.data(), restore.size());
+
+            *originalFunctionPtr = originalFunction.GetAs<void*>();
+
+            VirtualFree(allocatedPage.GetAs<void*>(), 0x1000, MEM_RELEASE);
+
+            return true;
         }
     };
 }
