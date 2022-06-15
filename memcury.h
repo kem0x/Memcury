@@ -1,5 +1,37 @@
 #pragma once
 
+/*
+    Memcury is a library for memory management in C++.
+
+    Containers:
+        -PE::Address: A pointer container.
+        -PE::Section: Portable executable section container for internal usage.
+
+    Modules:
+        -Scanner:
+            -Constructors:
+                -Default: Takes a pointer to start the scanning from.
+                -FindPattern: Finds a pattern in memory.
+                -FindStringRef: Finds a string reference in memory, supports all types of strings.
+            -Functions:
+                -SetTargetModule: Sets the target module for the scanner.
+                -ScanFor: Scans for a byte(s) near the current address.
+                -FindFunctionBoundary: Finds the boundary of a function near the current address.
+                -RelativeOffset: Gets the relative offset of the current address.
+                -AbsoluteOffset: Gets the absolute offset of the current address.
+                -GetAs: Gets the current address as a type.
+                -Get: Gets the current address as an int64.
+
+        -Hook:
+            -Constructors:
+                -Default: Takes a pointer pointer to the target function and a pointer to the hook function.
+            -Functions:
+                -Commit: Commits the hook.
+                -Revert: Reverts the hook.
+                -Toggle: Toggles the hook on\off.
+
+*/
+
 #include <string>
 #include <format>
 #include <vector>
@@ -347,6 +379,11 @@ namespace Memcury
             {
                 return reinterpret_cast<T>(_address);
             }
+
+            auto IsValid() -> bool
+            {
+                return _address != 0;
+            }
         };
 
         class Section
@@ -598,6 +635,11 @@ namespace Memcury
         {
             return _address.Get();
         }
+
+        auto IsValid()
+        {
+            return _address.IsValid();
+        }
     };
 
     class Hook
@@ -717,6 +759,11 @@ namespace Memcury
             return bytes;
         }
 
+        auto IsHooked()
+        {
+            return originalFunction.GetAs<uint8_t*>()[0] == ASM::Mnemonic("JMP_REL32");
+        }
+
     public:
         Hook(void** originalFunction, void* hookFunction)
         {
@@ -735,7 +782,10 @@ namespace Memcury
 
             auto restoreSize = PrepareRestore();
 
-            allocatedPage = AllocatePageNearAddress(fnStart);
+            if (!allocatedPage.IsValid())
+            {
+                allocatedPage = AllocatePageNearAddress(fnStart);
+            }
 
             memset(allocatedPage.GetAs<void*>(), ASM::MNEMONIC::INT3, 0x1000);
 
@@ -765,9 +815,19 @@ namespace Memcury
 
             *originalFunctionPtr = originalFunction.GetAs<void*>();
 
-            VirtualFree(allocatedPage.GetAs<void*>(), 0x1000, MEM_RELEASE);
+            // VirtualFree(allocatedPage.GetAs<void*>(), 0x1000, MEM_RELEASE);
 
             return true;
+        }
+
+        auto Toggle()
+        {
+            if (IsHooked())
+                Revert();
+            else
+                Commit();
+
+            return IsHooked();
         }
     };
 }
