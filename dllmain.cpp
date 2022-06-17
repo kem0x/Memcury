@@ -26,6 +26,7 @@ static void Main(HMODULE hModule)
     Memcury::Scanner::SetTargetModule("GameAssembly");
 
     auto scanner = Memcury::Scanner::FindPattern("40 ? 55 56 41 ? 48 83 EC ? 80 3D 05 F7 8E 01");
+
     /*
     auto scanner = Memcury::Scanner::FindStringRef(test)
                        .ScanFor({ Memcury::ASM::Mnemonic("CALL") }, false)
@@ -35,7 +36,7 @@ static void Main(HMODULE hModule)
 
     printf("%p\n", scanner.GetAs<void*>());
 
-    Memcury::Hook detour(&(void*&)ThrowDiceTurnDecisionFormatter_Serialize, ThrowDiceTurnDecisionFormatter_SerializeHook);
+    Memcury::TrampolineHook detour(&(void*&)ThrowDiceTurnDecisionFormatter_Serialize, ThrowDiceTurnDecisionFormatter_SerializeHook);
     detour.Commit();
 }
 

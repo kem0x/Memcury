@@ -1,7 +1,7 @@
 #pragma once
 
 /*
-    Memcury is a library for memory management in C++.
+    Memcury is a single-header file library for memory operations in C++.
 
     Containers:
         -PE::Address: A pointer container.
@@ -22,13 +22,19 @@
                 -GetAs: Gets the current address as a type.
                 -Get: Gets the current address as an int64.
 
-        -Hook:
+        -TrampolineHook:
             -Constructors:
                 -Default: Takes a pointer pointer to the target function and a pointer to the hook function.
             -Functions:
                 -Commit: Commits the hook.
                 -Revert: Reverts the hook.
                 -Toggle: Toggles the hook on\off.
+
+        -VEHHook:
+            -Functions:
+                -Init: Initializes the VEH Hook system.
+                -AddHook: Adds a hook to the VEH Hook system.
+                -RemoveHook: Removes a hook from the VEH Hook system.
 
 */
 
@@ -81,6 +87,23 @@ namespace Memcury
         constexpr unsigned int strhash(const char* str, int h = 0)
         {
             return !str[h] ? 5381 : (strhash(str, h + 1) * 33) ^ str[h];
+        }
+
+        bool IsSamePage(void* A, void* B)
+        {
+            MEMORY_BASIC_INFORMATION InfoA;
+            if (!VirtualQuery(A, &InfoA, sizeof(InfoA)))
+            {
+                return true;
+            }
+
+            MEMORY_BASIC_INFORMATION InfoB;
+            if (!VirtualQuery(B, &InfoB, sizeof(InfoB)))
+            {
+                return true;
+            }
+
+            return InfoA.BaseAddress == InfoB.BaseAddress;
         }
     }
 
@@ -194,22 +217,24 @@ namespace Memcury
 
         auto byteIsAscii(uint8_t byte)
         {
-            static constexpr bool isAscii[0x100] = { false, false, false, false, false, false, false, false, false, true, true, false, false, true, false, false,
-                                                     false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-                                                     true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
-                                                     true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
-                                                     true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
-                                                     true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
-                                                     true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
-                                                     true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false,
-                                                     false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-                                                     false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-                                                     false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-                                                     false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-                                                     false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-                                                     false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-                                                     false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-                                                     false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false };
+            static constexpr bool isAscii[0x100] = {
+                false, false, false, false, false, false, false, false, false, true, true, false, false, true, false, false,
+                false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+                true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
+                true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
+                true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
+                true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
+                true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
+                true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false,
+                false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+                false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+                false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+                false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+                false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+                false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+                false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
+                false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false
+            };
 
             return isAscii[byte];
         }
@@ -642,7 +667,7 @@ namespace Memcury
         }
     };
 
-    class Hook
+    class TrampolineHook
     {
         void** originalFunctionPtr;
         PE::Address originalFunction;
@@ -717,6 +742,11 @@ namespace Memcury
 
         auto PrepareRestore()
         {
+            /*
+                This is not a correct way to do it at all, since not all functions sub from the stack
+                This needs so much more tests, but it works for now.
+            */
+
             Scanner scanner(originalFunction);
             scanner.ScanFor({ 0x48, 0x83, 0xEC }); // sub rsp
 
@@ -765,7 +795,7 @@ namespace Memcury
         }
 
     public:
-        Hook(void** originalFunction, void* hookFunction)
+        TrampolineHook(void** originalFunction, void* hookFunction)
         {
             this->originalFunctionPtr = originalFunction;
 
@@ -830,4 +860,104 @@ namespace Memcury
             return IsHooked();
         }
     };
+
+    namespace VEHHook
+    {
+        struct HOOK_INFO
+        {
+            void* Original;
+            void* Detour;
+
+            HOOK_INFO(void* Original, void* Detour)
+                : Original(Original)
+                , Detour(Detour)
+            {
+            }
+        };
+
+        std::vector<HOOK_INFO> Hooks;
+        std::vector<DWORD> HookProtections;
+        HANDLE ExceptionHandler;
+
+        long Handler(EXCEPTION_POINTERS* Exception)
+        {
+            if (Exception->ExceptionRecord->ExceptionCode == STATUS_GUARD_PAGE_VIOLATION)
+            {
+                auto Itr = std::find_if(Hooks.begin(), Hooks.end(), [Rip = Exception->ContextRecord->Rip](const HOOK_INFO& Hook)
+                                        { return Hook.Original == (void*)Rip; });
+                if (Itr != Hooks.end())
+                {
+                    Exception->ContextRecord->Rip = (uintptr_t)Itr->Detour;
+                }
+
+                Exception->ContextRecord->EFlags |= 0x100; // SINGLE_STEP_FLAG
+
+                return EXCEPTION_CONTINUE_EXECUTION;
+            }
+            else if (Exception->ExceptionRecord->ExceptionCode == STATUS_SINGLE_STEP)
+            {
+                // TODO: find a way to only vp the function that about to get executed
+                for (auto& Hook : Hooks)
+                {
+                    DWORD dwOldProtect;
+                    VirtualProtect(Hook.Original, 1, PAGE_EXECUTE_READ | PAGE_GUARD, &dwOldProtect);
+                }
+
+                return EXCEPTION_CONTINUE_EXECUTION;
+            }
+
+            return EXCEPTION_CONTINUE_SEARCH;
+        }
+
+        bool Init()
+        {
+            if (ExceptionHandler == nullptr)
+            {
+                ExceptionHandler = AddVectoredExceptionHandler(true, (PVECTORED_EXCEPTION_HANDLER)Handler);
+            }
+            return ExceptionHandler != nullptr;
+        }
+
+        bool AddHook(void* Target, void* Detour)
+        {
+            if (ExceptionHandler == nullptr)
+            {
+                return false;
+            }
+
+            if (Util::IsSamePage(Target, Detour))
+            {
+                return false;
+            }
+
+            if (!VirtualProtect(Target, 1, PAGE_EXECUTE_READ | PAGE_GUARD, &HookProtections.emplace_back()))
+            {
+                HookProtections.pop_back();
+                return false;
+            }
+
+            Hooks.emplace_back(Target, Detour);
+            return true;
+        }
+
+        bool RemoveHook(void* Original)
+        {
+            auto Itr = std::find_if(Hooks.begin(), Hooks.end(), [Original](const HOOK_INFO& Hook)
+                                    { return Hook.Original == Original; });
+
+            if (Itr == Hooks.end())
+            {
+                return false;
+            }
+
+            const auto ProtItr = HookProtections.begin() + std::distance(Hooks.begin(), Itr);
+            Hooks.erase(Itr);
+
+            DWORD dwOldProtect;
+            bool Ret = VirtualProtect(Original, 1, *ProtItr, &dwOldProtect);
+            HookProtections.erase(ProtItr);
+
+            return false;
+        }
+    }
 }
