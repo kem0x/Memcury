@@ -8,7 +8,7 @@ Just `#include "memcury.h"` in your code!.
 
 Check [example](/example.cpp) for code examples.
 
-The current supported platform is Windows only, no plans for supporting more platforms.
+The current supported platform is Windows only, no plans for supporting more platforms, and c++23 or above.
 
 This project was intented to be used internaly (from a dynamic link library).
 
