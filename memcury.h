@@ -484,6 +484,93 @@ namespace Memcury
             PE::SetCurrentModule(moduleName);
         }
 
+        static auto FindPatternEx(HANDLE handle, const char* pattern, const char* mask, uint64_t begin, uint64_t end) // https://guidedhacking.com/threads/external-signature-pattern-scan-issues.12618/?view=votes#post-73200
+        {
+            auto scan = [](const char* pattern, const char* mask, char* begin, unsigned int size) -> char*
+            {
+                size_t patternLen = strlen(mask);
+                for (unsigned int i = 0; i < size - patternLen; i++)
+                {
+                    bool found = true;
+                    for (unsigned int j = 0; j < patternLen; j++)
+                    {
+                        if (mask[j] != '?' && pattern[j] != *(begin + i + j))
+                        {
+                            found = false;
+                            break;
+                        }
+                    }
+
+                    if (found)
+                        return (begin + i);
+                }
+                return nullptr;
+            };
+
+            uint64_t match = NULL;
+            SIZE_T bytesRead;
+            char* buffer = nullptr;
+            MEMORY_BASIC_INFORMATION mbi = { 0 };
+
+            uint64_t curr = begin;
+
+            for (uint64_t curr = begin; curr < end; curr += mbi.RegionSize)
+            {
+                if (!VirtualQueryEx(handle, (void*)curr, &mbi, sizeof(mbi)))
+                    continue;
+
+                if (mbi.State != MEM_COMMIT || mbi.Protect == PAGE_NOACCESS)
+                    continue;
+
+                buffer = new char[mbi.RegionSize];
+
+                if (ReadProcessMemory(handle, mbi.BaseAddress, buffer, mbi.RegionSize, &bytesRead))
+                {
+                    char* internalAddr = scan(pattern, mask, buffer, (unsigned int)bytesRead);
+
+                    if (internalAddr != nullptr)
+                    {
+                        match = curr + (uint64_t)(internalAddr - buffer);
+                        break;
+                    }
+                }
+            }
+            delete[] buffer;
+
+            return Scanner(match);
+        }
+
+        static auto FindPatternEx(HANDLE handle, const char* sig) // https://guidedhacking.com/threads/universal-pattern-signature-parser.9588/
+        {
+            char pattern[100];
+            char mask[100];
+
+            char lastChar = ' ';
+            unsigned int j = 0;
+
+            for (unsigned int i = 0; i < strlen(sig); i++)
+            {
+                if ((sig[i] == '?' || sig[i] == '*') && (lastChar != '?' && lastChar != '*'))
+                {
+                    pattern[j] = mask[j] = '?';
+                    j++;
+                }
+
+                else if (isspace(lastChar))
+                {
+                    pattern[j] = lastChar = (char)strtol(&sig[i], 0, 16);
+                    mask[j] = 'x';
+                    j++;
+                }
+                lastChar = sig[i];
+            }
+            pattern[j] = mask[j] = '\0';
+
+            auto module = (uint64_t)GetModuleHandle(nullptr);
+
+            return FindPatternEx(handle, pattern, mask, module, module + Memcury::PE::GetNTHeaders()->OptionalHeader.SizeOfImage);
+        }
+
         static auto FindPattern(const char* signature)
         {
             PE::Address add { nullptr };
