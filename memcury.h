@@ -110,7 +110,7 @@ namespace Memcury
     {
         constexpr const bool bLogging = true;
 
-        const char* moduleName = nullptr;
+        static const char* moduleName = nullptr;
     }
 
     namespace ASM
@@ -238,7 +238,7 @@ namespace Memcury
             return isAscii[byte];
         }
 
-        auto pattern2bytes(const char* pattern)
+        static auto pattern2bytes(const char* pattern)
         {
             auto bytes = std::vector<int> {};
             const auto start = const_cast<char*>(pattern);
