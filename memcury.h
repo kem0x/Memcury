@@ -682,7 +682,7 @@ namespace Memcury
             const auto s = opcodesToFind.size();
             const auto d = opcodesToFind.data();
 
-            for (auto i = 0; forward ? (i < 2048) : (i > -2048); forward ? i++ : i--)
+            for (auto i = 1; forward ? (i < 2048) : (i > -2048); forward ? i++ : i--)
             {
                 bool found = true;
                 for (auto j = 0ul; j < s; ++j)
