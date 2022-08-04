@@ -675,14 +675,15 @@ namespace Memcury
             return Scanner(add);
         }
 
-        auto ScanFor(std::vector<uint8_t> opcodesToFind, bool forward = true)
+        auto ScanFor(std::vector<uint8_t> opcodesToFind, bool forward = true, int toSkip = 0)
         {
             const auto scanBytes = _address.GetAs<std::uint8_t*>();
 
             const auto s = opcodesToFind.size();
             const auto d = opcodesToFind.data();
+            int skipped = 0;
 
-            for (auto i = 1; forward ? (i < 2048) : (i > -2048); forward ? i++ : i--)
+            for (auto i = forward ? 1 : -1; forward ? (i < 2048) : (i > -2048); forward ? i++ : i--)
             {
                 bool found = true;
                 for (auto j = 0ul; j < s; ++j)
@@ -696,8 +697,15 @@ namespace Memcury
 
                 if (found)
                 {
-                    _address = &scanBytes[i];
-                    break;
+                    if (skipped == toSkip)
+                    {
+                        _address = &scanBytes[i];
+                        break;
+                    }
+                    else
+                    {
+                        skipped += 1;
+                    }
                 }
             }
 

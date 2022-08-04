@@ -1,6 +1,6 @@
 # memcury.h
 
-A simple one header solution for memory manipulation in C++.
+A simple single header solution for memory manipulation in C++.
 
 ## Usage
 
