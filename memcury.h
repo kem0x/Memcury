@@ -209,12 +209,12 @@ namespace Memcury
             }
         }
 
-        auto byteIsA(uint8_t byte, MNEMONIC opcode)
+        bool byteIsA(uint8_t byte, MNEMONIC opcode)
         {
             return byte == opcode;
         }
 
-        auto byteIsAscii(uint8_t byte)
+        bool byteIsAscii(uint8_t byte)
         {
             static constexpr bool isAscii[0x100] = {
                 false, false, false, false, false, false, false, false, false, true, true, false, false, true, false, false,
@@ -238,7 +238,7 @@ namespace Memcury
             return isAscii[byte];
         }
 
-        static auto pattern2bytes(const char* pattern)
+        static std::vector<int> pattern2bytes(const char* pattern)
         {
             auto bytes = std::vector<int> {};
             const auto start = const_cast<char*>(pattern);
@@ -264,22 +264,22 @@ namespace Memcury
 
     namespace PE
     {
-        inline auto SetCurrentModule(const char* moduleName)
+        inline void SetCurrentModule(const char* moduleName)
         {
             Globals::moduleName = moduleName;
         }
 
-        inline auto GetModuleBase()
+        inline uintptr_t GetModuleBase()
         {
             return reinterpret_cast<uintptr_t>(GetModuleHandleA(Globals::moduleName));
         }
 
-        inline auto GetDOSHeader()
+        inline PIMAGE_DOS_HEADER GetDOSHeader()
         {
             return reinterpret_cast<PIMAGE_DOS_HEADER>(GetModuleBase());
         }
 
-        inline auto GetNTHeaders()
+        inline PIMAGE_NT_HEADERS GetNTHeaders()
         {
             return reinterpret_cast<PIMAGE_NT_HEADERS>(GetModuleBase() + GetDOSHeader()->e_lfanew);
         }
@@ -381,13 +381,13 @@ namespace Memcury
                 return _address != address._address;
             }
 
-            auto RelativeOffset(uint32_t offset)
+            auto RelativeOffset(uint32_t offset) -> Address
             {
                 _address = ((_address + offset + 4) + *(int32_t*)(_address + offset));
                 return *this;
             }
 
-            auto AbsoluteOffset(uint32_t offset)
+            auto AbsoluteOffset(uint32_t offset) -> Address
             {
                 _address = _address + offset;
                 return *this;
@@ -433,7 +433,7 @@ namespace Memcury
                 return sections;
             }
 
-            static auto GetSection(std::string sectionName)
+            static Section GetSection(std::string sectionName)
             {
                 for (auto& section : GetAllSections())
                 {
@@ -452,17 +452,17 @@ namespace Memcury
                 return rawSection.Misc.VirtualSize;
             }
 
-            auto GetSectionStart()
+            Address GetSectionStart()
             {
                 return Address(GetModuleBase() + rawSection.VirtualAddress);
             }
 
-            auto GetSectionEnd()
+            Address GetSectionEnd()
             {
                 return Address(GetSectionStart() + GetSectionSize());
             }
 
-            auto isInSection(Address address)
+            bool isInSection(Address address)
             {
                 return address >= GetSectionStart() && address < GetSectionEnd();
             }
@@ -479,12 +479,12 @@ namespace Memcury
         {
         }
 
-        static auto SetTargetModule(const char* moduleName)
+        static void SetTargetModule(const char* moduleName)
         {
             PE::SetCurrentModule(moduleName);
         }
 
-        static auto FindPatternEx(HANDLE handle, const char* pattern, const char* mask, uint64_t begin, uint64_t end) // https://guidedhacking.com/threads/external-signature-pattern-scan-issues.12618/?view=votes#post-73200
+        static Scanner FindPatternEx(HANDLE handle, const char* pattern, const char* mask, uint64_t begin, uint64_t end) // https://guidedhacking.com/threads/external-signature-pattern-scan-issues.12618/?view=votes#post-73200
         {
             auto scan = [](const char* pattern, const char* mask, char* begin, unsigned int size) -> char*
             {
@@ -540,7 +540,7 @@ namespace Memcury
             return Scanner(match);
         }
 
-        static auto FindPatternEx(HANDLE handle, const char* sig) // https://guidedhacking.com/threads/universal-pattern-signature-parser.9588/
+        static Scanner FindPatternEx(HANDLE handle, const char* sig) // https://guidedhacking.com/threads/universal-pattern-signature-parser.9588/
         {
             char pattern[100];
             char mask[100];
@@ -571,7 +571,7 @@ namespace Memcury
             return FindPatternEx(handle, pattern, mask, module, module + Memcury::PE::GetNTHeaders()->OptionalHeader.SizeOfImage);
         }
 
-        static auto FindPattern(const char* signature)
+        static Scanner FindPattern(const char* signature)
         {
             PE::Address add { nullptr };
 
@@ -606,7 +606,7 @@ namespace Memcury
 
         // Supports wide and normal strings both std and pointers
         template <typename T = const wchar_t*>
-        static auto FindStringRef(T string)
+        static Scanner FindStringRef(T string)
         {
             PE::Address add { nullptr };
 
@@ -675,7 +675,7 @@ namespace Memcury
             return Scanner(add);
         }
 
-        auto ScanFor(std::vector<uint8_t> opcodesToFind, bool forward = true, int toSkip = 0)
+        Scanner ScanFor(std::vector<uint8_t> opcodesToFind, bool forward = true, int toSkip = 0)
         {
             const auto scanBytes = _address.GetAs<std::uint8_t*>();
 
@@ -712,7 +712,7 @@ namespace Memcury
             return *this;
         }
 
-        auto FindFunctionBoundary(bool forward = false)
+        Scanner FindFunctionBoundary(bool forward = false)
         {
             const auto scanBytes = _address.GetAs<std::uint8_t*>();
 
@@ -730,14 +730,14 @@ namespace Memcury
             return *this;
         }
 
-        auto RelativeOffset(uint32_t offset)
+        Scanner RelativeOffset(uint32_t offset)
         {
             _address.RelativeOffset(offset);
 
             return *this;
         }
 
-        auto AbsoluteOffset(uint32_t offset)
+        Scanner AbsoluteOffset(uint32_t offset)
         {
             _address.AbsoluteOffset(offset);
 
@@ -750,12 +750,12 @@ namespace Memcury
             return _address.GetAs<T>();
         }
 
-        auto Get()
+        uintptr_t Get()
         {
             return _address.Get();
         }
 
-        auto IsValid()
+        bool IsValid()
         {
             return _address.IsValid();
         }
@@ -769,7 +769,7 @@ namespace Memcury
         PE::Address allocatedPage;
         std::vector<uint8_t> restore;
 
-        auto PointToCodeIfNot(PE::Address& ptr)
+        void PointToCodeIfNot(PE::Address& ptr)
         {
             auto bytes = ptr.GetAs<std::uint8_t*>();
 
@@ -834,7 +834,7 @@ namespace Memcury
             memcpy(jumpLocation, absJumpInstructions, sizeof(absJumpInstructions));
         }
 
-        auto PrepareRestore()
+        uintptr_t PrepareRestore()
         {
             /*
                 This is not a correct way to do it at all, since not all functions sub from the stack
@@ -857,7 +857,7 @@ namespace Memcury
             return restoreSize;
         }
 
-        auto WriteRestore()
+        void WriteRestore()
         {
             auto restorePtr = allocatedPage + ASM::SIZE_OF_JMP_ABSLOUTE_INSTRUCTION + 2;
 
@@ -883,7 +883,7 @@ namespace Memcury
             return &bytes;
         }
 
-        auto IsHooked()
+        bool IsHooked()
         {
             return originalFunction.GetAs<uint8_t*>()[0] == ASM::Mnemonic("JMP_REL32");
         }
@@ -900,7 +900,7 @@ namespace Memcury
             PointToCodeIfNot(this->hookFunction);
         };
 
-        auto Commit()
+        bool Commit()
         {
             auto fnStart = originalFunction.GetAs<void*>();
 
@@ -928,7 +928,7 @@ namespace Memcury
             return true;
         }
 
-        auto Revert()
+        bool Revert()
         {
             auto fnStart = originalFunction.GetAs<void*>();
 
