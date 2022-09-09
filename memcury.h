@@ -678,35 +678,28 @@ namespace Memcury
         Scanner ScanFor(std::vector<uint8_t> opcodesToFind, bool forward = true, int toSkip = 0)
         {
             const auto scanBytes = _address.GetAs<std::uint8_t*>();
-
-            const auto s = opcodesToFind.size();
-            const auto d = opcodesToFind.data();
             int skipped = 0;
+            bool found = false;
 
-            for (auto i = forward ? 1 : -1; forward ? (i < 2048) : (i > -2048); forward ? i++ : i--)
+            for (auto i = 0; forward ? (i < 2048) : (i > -2048); forward ? i++ : i--)
             {
-                bool found = true;
-                for (auto j = 0ul; j < s; ++j)
+                for (auto op : opcodesToFind)
                 {
-                    if (scanBytes[i + j] != d[j] && d[j] != -1)
+                    if (scanBytes[i] != op || op == -1)
+                        break;
+
+                    if (toSkip != skipped)
                     {
-                        found = false;
+                        skipped++;
                         break;
                     }
+
+                    _address = &scanBytes[i];
+                    found = true;
                 }
 
                 if (found)
-                {
-                    if (skipped == toSkip)
-                    {
-                        _address = &scanBytes[i];
-                        break;
-                    }
-                    else
-                    {
-                        skipped += 1;
-                    }
-                }
+                    break;
             }
 
             return *this;
