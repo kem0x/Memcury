@@ -7,13 +7,6 @@ DefineNative(reinterpret_cast<uintptr_t>(GetModuleHandleA("GameAssembly.dll")) +
 
 constexpr const wchar_t* testStringRef = L"%s %s SetTimer passed a negative or zero time. The associated timer may fail to be created/fire! If using InitialStartDelayVariance, be sure it is smaller than (Time + InitialStartDelay).";
 
-int32_t TestFuncHook(void* __this, void** bytes, int32_t offset, void* value, void* formatterResolver, void* method)
-{
-    printf("Return address from %s: %p\n", __FUNCTION__, _ReturnAddress());
-
-    return TestFunc(__this, bytes, offset, value, formatterResolver, method);
-}
-
 static void Main(HMODULE hModule)
 {
     if constexpr (Memcury::Globals::bLogging)
@@ -24,21 +17,14 @@ static void Main(HMODULE hModule)
         freopen_s(&pFile, "CONOUT$", "w", stdout);
     }
 
-    Memcury::Scanner::SetTargetModule("GameAssembly");
+    Memcury::Safety::SetExceptionMode<Memcury::Safety::ExceptionMode::CatchDllExceptionsOnly>();
+    //*((unsigned int*)0) = 0xDEAD; 
 
-    auto scanner = Memcury::Scanner::FindPattern("40 ? 55 56 41 ? 48 83 EC ? 80 3D 05 F7 8E 01");
-
-    /*
     auto scanner = Memcury::Scanner::FindStringRef(testStringRef)
                        .ScanFor({ Memcury::ASM::Mnemonic("CALL") }, false)
                        .RelativeOffset(1);
-                       .FindFunctionBoundary();
-    */
 
     printf("%p\n", scanner.GetAs<void*>());
-
-    Memcury::TrampolineHook detour(&(void*&)TestFunc, TestFuncHook);
-    detour.Commit();
 }
 
 bool DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved)

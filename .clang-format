@@ -1,6 +1,6 @@
 ﻿---
 BasedOnStyle: WebKit
-AlignAfterOpenBracket: AlwaysBreak
+AlignAfterOpenBracket: DontAlign
 BreakBeforeBraces: Allman
 NamespaceIndentation: All
 SortIncludes: false

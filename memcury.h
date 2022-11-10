@@ -44,51 +44,51 @@
 #include <type_traits>
 #include <intrin.h>
 #include <Windows.h>
+#include <source_location>
+#include <DbgHelp.h>
+#pragma comment(lib, "Dbghelp.lib")
+
+#define MemcuryAssert(cond)                                              \
+    if (!(cond))                                                         \
+    {                                                                    \
+        MessageBoxA(nullptr, #cond, __FUNCTION__, MB_ICONERROR | MB_OK); \
+        Memcury::Safety::FreezeCurrentThread();                          \
+    }
+
+#define MemcuryAssertM(cond, msg)                                      \
+    if (!(cond))                                                       \
+    {                                                                  \
+        MessageBoxA(nullptr, msg, __FUNCTION__, MB_ICONERROR | MB_OK); \
+        Memcury::Safety::FreezeCurrentThread();                        \
+    }
+
+#define MemcuryThrow(msg)                                          \
+    MessageBoxA(nullptr, msg, __FUNCTION__, MB_ICONERROR | MB_OK); \
+    Memcury::Safety::FreezeCurrentThread();
 
 namespace Memcury
 {
-    class Safety
+    extern "C" IMAGE_DOS_HEADER __ImageBase;
+
+    auto GetCurrentModule() -> HMODULE
     {
-        static void FreezeCurrentThread()
-        {
-            static auto currentThread = GetCurrentThread();
-
-            SuspendThread(currentThread);
-        }
-
-    public:
-        static void Assert(bool condition, std::string message)
-        {
-            if (!condition)
-            {
-                MessageBoxA(nullptr, (std::format("{}\nLine: {}", message, __LINE__)).c_str(), "Error", MB_OK | MB_ICONERROR);
-                FreezeCurrentThread();
-            }
-        }
-
-        /*static void Assertf(bool condition, std::string& message, std::initializer_list<std::string&> format)
-        {
-            if (condition)
-            {
-                MessageBoxA(nullptr, (std::format(fmt, format)).c_str(), "Error", MB_OK | MB_ICONERROR);
-                FreezeCurrentThread();
-            }
-        }*/
-
-        static void Throw(std::string message)
-        {
-            throw std::runtime_error(message);
-        }
-    };
+        return reinterpret_cast<HMODULE>(&__ImageBase);
+    }
 
     namespace Util
     {
-        constexpr unsigned int strhash(const char* str, int h = 0)
+        template <typename T>
+        constexpr static auto IsInRange(T value, T min, T max) -> bool
         {
-            return !str[h] ? 5381 : (strhash(str, h + 1) * 33) ^ str[h];
+            return value >= min && value < max;
         }
 
-        bool IsSamePage(void* A, void* B)
+        constexpr auto StrHash(const char* str, int h = 0) -> unsigned int
+        {
+            return !str[h] ? 5381 : (StrHash(str, h + 1) * 33) ^ str[h];
+        }
+
+        auto IsSamePage(void* A, void* B) -> bool
         {
             MEMORY_BASIC_INFORMATION InfoA;
             if (!VirtualQuery(A, &InfoA, sizeof(InfoA)))
@@ -103,6 +103,128 @@ namespace Memcury
             }
 
             return InfoA.BaseAddress == InfoB.BaseAddress;
+        }
+
+        auto GetModuleStartAndEnd() -> std::pair<uintptr_t, uintptr_t>
+        {
+            auto HModule = GetCurrentModule();
+            auto NTHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>((uintptr_t)HModule + reinterpret_cast<PIMAGE_DOS_HEADER>((uintptr_t)HModule)->e_lfanew);
+
+            uintptr_t dllStart = (uintptr_t)HModule;
+            uintptr_t dllEnd = (uintptr_t)HModule + NTHeaders->OptionalHeader.SizeOfImage;
+
+            return { dllStart, dllEnd };
+        }
+
+        auto CopyToClipboard(std::string str)
+        {
+            auto mem = GlobalAlloc(GMEM_FIXED, str.size() + 1);
+            memcpy(mem, str.c_str(), str.size() + 1);
+
+            OpenClipboard(nullptr);
+            EmptyClipboard();
+            SetClipboardData(CF_TEXT, mem);
+            CloseClipboard();
+
+            GlobalFree(mem);
+        }
+    }
+
+    namespace Safety
+    {
+        enum class ExceptionMode
+        {
+            None,
+            CatchDllExceptionsOnly,
+            CatchAllExceptions
+        };
+
+        static auto FreezeCurrentThread() -> void
+        {
+            SuspendThread(GetCurrentThread());
+        }
+
+        static auto PrintStack(CONTEXT* ctx) -> void
+        {
+            STACKFRAME64 stack;
+            memset(&stack, 0, sizeof(STACKFRAME64));
+
+            auto process = GetCurrentProcess();
+            auto thread = GetCurrentThread();
+
+            SymInitialize(process, NULL, TRUE);
+
+            bool result;
+            DWORD64 displacement = 0;
+
+            char buffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)] { 0 };
+            char name[256] { 0 };
+            char module[256] { 0 };
+
+            PSYMBOL_INFO symbolInfo = (PSYMBOL_INFO)buffer;
+
+            for (ULONG frame = 0;; frame++)
+            {
+                result = StackWalk64(
+                    IMAGE_FILE_MACHINE_AMD64,
+                    process,
+                    thread,
+                    &stack,
+                    ctx,
+                    NULL,
+                    SymFunctionTableAccess64,
+                    SymGetModuleBase64,
+                    NULL);
+
+                if (!result)
+                    break;
+
+                symbolInfo->SizeOfStruct = sizeof(SYMBOL_INFO);
+                symbolInfo->MaxNameLen = MAX_SYM_NAME;
+                SymFromAddr(process, (ULONG64)stack.AddrPC.Offset, &displacement, symbolInfo);
+
+                HMODULE hModule = NULL;
+                lstrcpyA(module, "");
+                GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (const wchar_t*)(stack.AddrPC.Offset), &hModule);
+
+                if (hModule != NULL)
+                    GetModuleFileNameA(hModule, module, 256);
+
+                printf("[%lu] Name: %s - Address: %p  - Module: %s\n", frame, symbolInfo->Name, (void*)symbolInfo->Address, module);
+            }
+        }
+
+        template <ExceptionMode mode>
+        auto MemcuryGlobalHandler(EXCEPTION_POINTERS* ExceptionInfo) -> long
+        {
+            auto [dllStart, dllEnd] = Util::GetModuleStartAndEnd();
+
+            if constexpr (mode == ExceptionMode::CatchDllExceptionsOnly)
+            {
+                if (!Util::IsInRange(ExceptionInfo->ContextRecord->Rip, dllStart, dllEnd))
+                {
+                    return EXCEPTION_CONTINUE_SEARCH;
+                }
+            }
+
+            auto message = std::format("Memcury caught an exception at [{:x}]\nPress Yes if you want the address to be copied to your clipboard", ExceptionInfo->ContextRecord->Rip);
+            if (MessageBoxA(nullptr, message.c_str(), "Error", MB_ICONERROR | MB_YESNO) == IDYES)
+            {
+                std::string clip = std::format("{:x}", ExceptionInfo->ContextRecord->Rip);
+                Util::CopyToClipboard(clip);
+            }
+
+            PrintStack(ExceptionInfo->ContextRecord);
+
+            FreezeCurrentThread();
+
+            return EXCEPTION_EXECUTE_HANDLER;
+        }
+
+        template <ExceptionMode mode>
+        static auto SetExceptionMode() -> void
+        {
+            SetUnhandledExceptionFilter(MemcuryGlobalHandler<mode>);
         }
     }
 
@@ -137,7 +259,7 @@ namespace Memcury
         constexpr int SIZE_OF_JMP_RELATIVE_INSTRUCTION = 5;
         constexpr int SIZE_OF_JMP_ABSLOUTE_INSTRUCTION = 13;
 
-        constexpr const char* MnemonicToString(MNEMONIC e) throw()
+        constexpr auto MnemonicToString(MNEMONIC e) -> const char*
         {
             switch (e)
             {
@@ -174,47 +296,47 @@ namespace Memcury
             }
         }
 
-        constexpr MNEMONIC Mnemonic(const char* s) throw()
+        constexpr auto Mnemonic(const char* s) -> MNEMONIC
         {
-            switch (Util::strhash(s))
+            switch (Util::StrHash(s))
             {
-            case Util::strhash("JMP_REL8"):
+            case Util::StrHash("JMP_REL8"):
                 return JMP_REL8;
-            case Util::strhash("JMP_REL32"):
+            case Util::StrHash("JMP_REL32"):
                 return JMP_REL32;
-            case Util::strhash("JMP_EAX"):
+            case Util::StrHash("JMP_EAX"):
                 return JMP_EAX;
-            case Util::strhash("CALL"):
+            case Util::StrHash("CALL"):
                 return CALL;
-            case Util::strhash("LEA"):
+            case Util::StrHash("LEA"):
                 return LEA;
-            case Util::strhash("CDQ"):
+            case Util::StrHash("CDQ"):
                 return CDQ;
-            case Util::strhash("CMOVL"):
+            case Util::StrHash("CMOVL"):
                 return CMOVL;
-            case Util::strhash("CMOVS"):
+            case Util::StrHash("CMOVS"):
                 return CMOVS;
-            case Util::strhash("CMOVNS"):
+            case Util::StrHash("CMOVNS"):
                 return CMOVNS;
-            case Util::strhash("NOP"):
+            case Util::StrHash("NOP"):
                 return NOP;
-            case Util::strhash("INT3"):
+            case Util::StrHash("INT3"):
                 return INT3;
-            case Util::strhash("RETN_REL8"):
+            case Util::StrHash("RETN_REL8"):
                 return RETN_REL8;
-            case Util::strhash("RETN"):
+            case Util::StrHash("RETN"):
                 return RETN;
             default:
                 return NONE;
             }
         }
 
-        bool byteIsA(uint8_t byte, MNEMONIC opcode)
+        auto byteIsA(uint8_t byte, MNEMONIC opcode) -> bool
         {
             return byte == opcode;
         }
 
-        bool byteIsAscii(uint8_t byte)
+        auto byteIsAscii(uint8_t byte) -> bool
         {
             static constexpr bool isAscii[0x100] = {
                 false, false, false, false, false, false, false, false, false, true, true, false, false, true, false, false,
@@ -238,7 +360,7 @@ namespace Memcury
             return isAscii[byte];
         }
 
-        static std::vector<int> pattern2bytes(const char* pattern)
+        static auto pattern2bytes(const char* pattern) -> std::vector<int>
         {
             auto bytes = std::vector<int> {};
             const auto start = const_cast<char*>(pattern);
@@ -264,22 +386,22 @@ namespace Memcury
 
     namespace PE
     {
-        inline void SetCurrentModule(const char* moduleName)
+        inline auto SetCurrentModule(const char* moduleName) -> void
         {
             Globals::moduleName = moduleName;
         }
 
-        inline uintptr_t GetModuleBase()
+        inline auto GetModuleBase() -> uintptr_t
         {
             return reinterpret_cast<uintptr_t>(GetModuleHandleA(Globals::moduleName));
         }
 
-        inline PIMAGE_DOS_HEADER GetDOSHeader()
+        inline auto GetDOSHeader() -> PIMAGE_DOS_HEADER
         {
             return reinterpret_cast<PIMAGE_DOS_HEADER>(GetModuleBase());
         }
 
-        inline PIMAGE_NT_HEADERS GetNTHeaders()
+        inline auto GetNTHeaders() -> PIMAGE_NT_HEADERS
         {
             return reinterpret_cast<PIMAGE_NT_HEADERS>(GetModuleBase() + GetDOSHeader()->e_lfanew);
         }
@@ -416,7 +538,7 @@ namespace Memcury
             std::string sectionName;
             IMAGE_SECTION_HEADER rawSection;
 
-            static std::vector<Section> GetAllSections()
+            static auto GetAllSections() -> std::vector<Section>
             {
                 std::vector<Section> sections;
 
@@ -433,7 +555,7 @@ namespace Memcury
                 return sections;
             }
 
-            static Section GetSection(std::string sectionName)
+            static auto GetSection(std::string sectionName) -> Section
             {
                 for (auto& section : GetAllSections())
                 {
@@ -443,7 +565,7 @@ namespace Memcury
                     }
                 }
 
-                Safety::Throw("Section not found");
+                MemcuryThrow("Section not found");
                 return Section {};
             }
 
@@ -452,17 +574,17 @@ namespace Memcury
                 return rawSection.Misc.VirtualSize;
             }
 
-            Address GetSectionStart()
+            auto GetSectionStart() -> Address
             {
                 return Address(GetModuleBase() + rawSection.VirtualAddress);
             }
 
-            Address GetSectionEnd()
+            auto GetSectionEnd() -> Address
             {
                 return Address(GetSectionStart() + GetSectionSize());
             }
 
-            bool isInSection(Address address)
+            auto isInSection(Address address) -> bool
             {
                 return address >= GetSectionStart() && address < GetSectionEnd();
             }
@@ -479,12 +601,12 @@ namespace Memcury
         {
         }
 
-        static void SetTargetModule(const char* moduleName)
+        static auto SetTargetModule(const char* moduleName) -> void
         {
             PE::SetCurrentModule(moduleName);
         }
 
-        static Scanner FindPatternEx(HANDLE handle, const char* pattern, const char* mask, uint64_t begin, uint64_t end) // https://guidedhacking.com/threads/external-signature-pattern-scan-issues.12618/?view=votes#post-73200
+        static auto FindPatternEx(HANDLE handle, const char* pattern, const char* mask, uint64_t begin, uint64_t end) -> Scanner
         {
             auto scan = [](const char* pattern, const char* mask, char* begin, unsigned int size) -> char*
             {
@@ -537,10 +659,12 @@ namespace Memcury
             }
             delete[] buffer;
 
+            MemcuryAssertM(match != 0, "FindPatternEx return nullptr");
+
             return Scanner(match);
         }
 
-        static Scanner FindPatternEx(HANDLE handle, const char* sig) // https://guidedhacking.com/threads/universal-pattern-signature-parser.9588/
+        static auto FindPatternEx(HANDLE handle, const char* sig) -> Scanner
         {
             char pattern[100];
             char mask[100];
@@ -571,7 +695,7 @@ namespace Memcury
             return FindPatternEx(handle, pattern, mask, module, module + Memcury::PE::GetNTHeaders()->OptionalHeader.SizeOfImage);
         }
 
-        static Scanner FindPattern(const char* signature)
+        static auto FindPattern(const char* signature) -> Scanner
         {
             PE::Address add { nullptr };
 
@@ -601,12 +725,14 @@ namespace Memcury
                 }
             }
 
+            MemcuryAssertM(add != 0, "FindPattern return nullptr");
+
             return Scanner(add);
         }
 
         // Supports wide and normal strings both std and pointers
         template <typename T = const wchar_t*>
-        static Scanner FindStringRef(T string)
+        static auto FindStringRef(T string) -> Scanner
         {
             PE::Address add { nullptr };
 
@@ -672,16 +798,18 @@ namespace Memcury
                 }
             }
 
+            MemcuryAssertM(add != 0, "FindStringRef return nullptr");
+
             return Scanner(add);
         }
 
-        Scanner ScanFor(std::vector<uint8_t> opcodesToFind, bool forward = true, int toSkip = 0)
+        auto ScanFor(std::vector<uint8_t> opcodesToFind, bool forward = true, int toSkip = 0) -> Scanner
         {
             const auto scanBytes = _address.GetAs<std::uint8_t*>();
             int skipped = 0;
             bool found = false;
 
-            for (auto i = 0; forward ? (i < 2048) : (i > -2048); forward ? i++ : i--)
+            for (auto i = (forward ? 1 : -1); forward ? (i < 2048) : (i > -2048); forward ? i++ : i--)
             {
                 for (auto op : opcodesToFind)
                 {
@@ -705,7 +833,7 @@ namespace Memcury
             return *this;
         }
 
-        Scanner FindFunctionBoundary(bool forward = false)
+        auto FindFunctionBoundary(bool forward = false) -> Scanner
         {
             const auto scanBytes = _address.GetAs<std::uint8_t*>();
 
@@ -723,14 +851,14 @@ namespace Memcury
             return *this;
         }
 
-        Scanner RelativeOffset(uint32_t offset)
+        auto RelativeOffset(uint32_t offset) -> Scanner
         {
             _address.RelativeOffset(offset);
 
             return *this;
         }
 
-        Scanner AbsoluteOffset(uint32_t offset)
+        auto AbsoluteOffset(uint32_t offset) -> Scanner
         {
             _address.AbsoluteOffset(offset);
 
@@ -743,17 +871,18 @@ namespace Memcury
             return _address.GetAs<T>();
         }
 
-        uintptr_t Get()
+        auto Get() -> uintptr_t
         {
             return _address.Get();
         }
 
-        bool IsValid()
+        auto IsValid() -> bool
         {
             return _address.IsValid();
         }
     };
 
+    /* Bad don't use it tbh... */
     class TrampolineHook
     {
         void** originalFunctionPtr;
@@ -839,7 +968,7 @@ namespace Memcury
 
             auto restoreSize = scanner.Get() - originalFunction.Get();
 
-            Safety::Assert(restoreSize > 0 && restoreSize < 0x100, "Could not find sub rsp");
+            MemcuryAssert(restoreSize > 0 && restoreSize < 0x100);
 
             restore.reserve(restoreSize);
             for (auto i = 0; i < restoreSize; i++)
@@ -873,7 +1002,7 @@ namespace Memcury
             const uint64_t relAddr = dst - (originalFunction.Get() + ASM::SIZE_OF_JMP_RELATIVE_INSTRUCTION);
             memcpy(bytes + 1, &relAddr, 4);
 
-            return &bytes;
+            return std::move(bytes);
         }
 
         bool IsHooked()
@@ -971,7 +1100,7 @@ namespace Memcury
             if (Exception->ExceptionRecord->ExceptionCode == STATUS_GUARD_PAGE_VIOLATION)
             {
                 auto Itr = std::find_if(Hooks.begin(), Hooks.end(), [Rip = Exception->ContextRecord->Rip](const HOOK_INFO& Hook)
-                                        { return Hook.Original == (void*)Rip; });
+                    { return Hook.Original == (void*)Rip; });
                 if (Itr != Hooks.end())
                 {
                     Exception->ContextRecord->Rip = (uintptr_t)Itr->Detour;
@@ -1030,7 +1159,7 @@ namespace Memcury
         bool RemoveHook(void* Original)
         {
             auto Itr = std::find_if(Hooks.begin(), Hooks.end(), [Original](const HOOK_INFO& Hook)
-                                    { return Hook.Original == Original; });
+                { return Hook.Original == Original; });
 
             if (Itr == Hooks.end())
             {
