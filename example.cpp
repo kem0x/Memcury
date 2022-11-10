@@ -18,7 +18,7 @@ static void Main(HMODULE hModule)
     }
 
     Memcury::Safety::SetExceptionMode<Memcury::Safety::ExceptionMode::CatchDllExceptionsOnly>();
-    //*((unsigned int*)0) = 0xDEAD; 
+    //*((unsigned int*)0) = 0xDEAD;
 
     auto scanner = Memcury::Scanner::FindStringRef(testStringRef)
                        .ScanFor({ Memcury::ASM::Mnemonic("CALL") }, false)
