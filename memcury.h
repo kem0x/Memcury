@@ -837,7 +837,7 @@ namespace Memcury
         {
             const auto scanBytes = _address.GetAs<std::uint8_t*>();
 
-            for (auto i = 0; forward ? (i < 2048) : (i > -2048); forward ? i++ : i--)
+            for (auto i = (forward ? 1 : -1); forward ? (i < 2048) : (i > -2048); forward ? i++ : i--)
             {
                 if ( // ASM::byteIsA(scanBytes[i], ASM::MNEMONIC::JMP_REL8) ||
                      // ASM::byteIsA(scanBytes[i], ASM::MNEMONIC::JMP_REL32) ||
@@ -845,6 +845,7 @@ namespace Memcury
                     ASM::byteIsA(scanBytes[i], ASM::MNEMONIC::RETN_REL8) || ASM::byteIsA(scanBytes[i], ASM::MNEMONIC::RETN) || ASM::byteIsA(scanBytes[i], ASM::MNEMONIC::INT3))
                 {
                     _address = (uintptr_t)&scanBytes[i + 1];
+                    break;
                 }
             }
 
