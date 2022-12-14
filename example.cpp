@@ -7,6 +7,8 @@ DefineNative(reinterpret_cast<uintptr_t>(GetModuleHandleA("GameAssembly.dll")) +
 
 constexpr const wchar_t* testStringRef = L"%s %s SetTimer passed a negative or zero time. The associated timer may fail to be created/fire! If using InitialStartDelayVariance, be sure it is smaller than (Time + InitialStartDelay).";
 
+constexpr const char* jumpPatternExample = "74 05 E8 ?? ?? ?? ?? 48 8D 0D ?? ?? ?? ?? 48 89 5C 24 ??";
+
 static void Main(HMODULE hModule)
 {
     if constexpr (Memcury::Globals::bLogging)
@@ -24,7 +26,12 @@ static void Main(HMODULE hModule)
                        .ScanFor({ Memcury::ASM::Mnemonic("CALL") }, false)
                        .RelativeOffset(1);
 
-    printf("%p\n", scanner.GetAs<void*>());
+    //Jump example
+    auto scanner2 = Memcury::Scanner::FindPattern(jumpPatternExample)
+                        .Jump()
+                        .RelativeOffset(3);
+
+    printf("%p\n%p\n", scanner.GetAs<void*>(), scanner2.GetAs<void*>());
 }
 
 bool DllMain(HMODULE hModule, DWORD ulReason, LPVOID lpReserved)
