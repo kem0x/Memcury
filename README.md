@@ -36,6 +36,7 @@ This project was intented to be used internaly (from a dynamic link library).
       - RelativeOffset: Gets the relative offset of the current address.
       - AbsoluteOffset: Gets the absolute offset of the current address.
       - GetAs: Gets the current address as a type.
+      - Jump: Follow any jump instruction.
       - Get: Gets the current address as an int64.
 
   - TrampolineHook:

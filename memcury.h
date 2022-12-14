@@ -360,6 +360,11 @@ namespace Memcury
             return isAscii[byte];
         }
 
+        bool isJump(uint8_t byte)
+        {
+            return byte >= 0x70 && byte <= 0x7F;
+        }
+
         static auto pattern2bytes(const char* pattern) -> std::vector<int>
         {
             auto bytes = std::vector<int> {};
@@ -512,6 +517,17 @@ namespace Memcury
             auto AbsoluteOffset(uint32_t offset) -> Address
             {
                 _address = _address + offset;
+                return *this;
+            }
+
+            auto Jump() -> Address
+            {
+                if (ASM::isJump(*reinterpret_cast<UINT8*>(_address)))
+                {
+                    UINT8 toSkip = *reinterpret_cast<UINT8*>(_address + 1);
+                    _address = _address + 2 + toSkip;
+                }
+
                 return *this;
             }
 
@@ -801,6 +817,12 @@ namespace Memcury
             MemcuryAssertM(add != 0, "FindStringRef return nullptr");
 
             return Scanner(add);
+        }
+
+        auto Jump() -> Scanner
+        {
+            _address.Jump();
+            return *this;
         }
 
         auto ScanFor(std::vector<uint8_t> opcodesToFind, bool forward = true, int toSkip = 0) -> Scanner
