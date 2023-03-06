@@ -70,7 +70,7 @@ namespace Memcury
 {
     extern "C" IMAGE_DOS_HEADER __ImageBase;
 
-    auto GetCurrentModule() -> HMODULE
+    inline auto GetCurrentModule() -> HMODULE
     {
         return reinterpret_cast<HMODULE>(&__ImageBase);
     }
@@ -88,7 +88,7 @@ namespace Memcury
             return !str[h] ? 5381 : (StrHash(str, h + 1) * 33) ^ str[h];
         }
 
-        auto IsSamePage(void* A, void* B) -> bool
+        inline auto IsSamePage(void* A, void* B) -> bool
         {
             MEMORY_BASIC_INFORMATION InfoA;
             if (!VirtualQuery(A, &InfoA, sizeof(InfoA)))
@@ -105,7 +105,7 @@ namespace Memcury
             return InfoA.BaseAddress == InfoB.BaseAddress;
         }
 
-        auto GetModuleStartAndEnd() -> std::pair<uintptr_t, uintptr_t>
+        inline auto GetModuleStartAndEnd() -> std::pair<uintptr_t, uintptr_t>
         {
             auto HModule = GetCurrentModule();
             auto NTHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>((uintptr_t)HModule + reinterpret_cast<PIMAGE_DOS_HEADER>((uintptr_t)HModule)->e_lfanew);
@@ -116,7 +116,7 @@ namespace Memcury
             return { dllStart, dllEnd };
         }
 
-        auto CopyToClipboard(std::string str)
+        inline auto CopyToClipboard(std::string str)
         {
             auto mem = GlobalAlloc(GMEM_FIXED, str.size() + 1);
             memcpy(mem, str.c_str(), str.size() + 1);
@@ -331,12 +331,12 @@ namespace Memcury
             }
         }
 
-        auto byteIsA(uint8_t byte, MNEMONIC opcode) -> bool
+        inline auto byteIsA(uint8_t byte, MNEMONIC opcode) -> bool
         {
             return byte == opcode;
         }
 
-        auto byteIsAscii(uint8_t byte) -> bool
+        inline auto byteIsAscii(uint8_t byte) -> bool
         {
             static constexpr bool isAscii[0x100] = {
                 false, false, false, false, false, false, false, false, false, true, true, false, false, true, false, false,
@@ -360,7 +360,7 @@ namespace Memcury
             return isAscii[byte];
         }
 
-        bool isJump(uint8_t byte)
+        inline bool isJump(uint8_t byte)
         {
             return byte >= 0x70 && byte <= 0x7F;
         }
@@ -1114,11 +1114,11 @@ namespace Memcury
             }
         };
 
-        std::vector<HOOK_INFO> Hooks;
-        std::vector<DWORD> HookProtections;
-        HANDLE ExceptionHandler;
+        inline std::vector<HOOK_INFO> Hooks;
+        inline std::vector<DWORD> HookProtections;
+        inline HANDLE ExceptionHandler;
 
-        long Handler(EXCEPTION_POINTERS* Exception)
+        inline long Handler(EXCEPTION_POINTERS* Exception)
         {
             if (Exception->ExceptionRecord->ExceptionCode == STATUS_GUARD_PAGE_VIOLATION)
             {
@@ -1148,7 +1148,7 @@ namespace Memcury
             return EXCEPTION_CONTINUE_SEARCH;
         }
 
-        bool Init()
+        inline bool Init()
         {
             if (ExceptionHandler == nullptr)
             {
@@ -1157,7 +1157,7 @@ namespace Memcury
             return ExceptionHandler != nullptr;
         }
 
-        bool AddHook(void* Target, void* Detour)
+        inline bool AddHook(void* Target, void* Detour)
         {
             if (ExceptionHandler == nullptr)
             {
@@ -1179,7 +1179,7 @@ namespace Memcury
             return true;
         }
 
-        bool RemoveHook(void* Original)
+        inline bool RemoveHook(void* Original)
         {
             auto Itr = std::find_if(Hooks.begin(), Hooks.end(), [Original](const HOOK_INFO& Hook)
                 { return Hook.Original == Original; });
