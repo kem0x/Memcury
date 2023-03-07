@@ -232,7 +232,7 @@ namespace Memcury
     {
         constexpr const bool bLogging = true;
 
-        static const char* moduleName = nullptr;
+        inline const char* moduleName = nullptr;
     }
 
     namespace ASM
