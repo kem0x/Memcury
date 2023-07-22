@@ -201,16 +201,33 @@ namespace Memcury
 
             if constexpr (mode == ExceptionMode::CatchDllExceptionsOnly)
             {
+#if defined _M_X64
                 if (!Util::IsInRange(ExceptionInfo->ContextRecord->Rip, dllStart, dllEnd))
                 {
                     return EXCEPTION_CONTINUE_SEARCH;
                 }
+#elif defined _M_IX86
+                if (!Util::IsInRange(ExceptionInfo->ContextRecord->Eip, dllStart, dllEnd))
+                {
+                    return EXCEPTION_CONTINUE_SEARCH;
+                }
+#endif
             }
 
+#if defined _M_X64
             auto message = std::format("Memcury caught an exception at [{:x}]\nPress Yes if you want the address to be copied to your clipboard", ExceptionInfo->ContextRecord->Rip);
+#elif defined _M_IX86
+            auto message = std::format("Memcury caught an exception at [{:x}]\nPress Yes if you want the address to be copied to your clipboard", ExceptionInfo->ContextRecord->Eip);
+#endif
+
             if (MessageBoxA(nullptr, message.c_str(), "Error", MB_ICONERROR | MB_YESNO) == IDYES)
             {
+#if defined _M_X64
                 std::string clip = std::format("{:x}", ExceptionInfo->ContextRecord->Rip);
+#elif defined _M_IX86
+                std::string clip = std::format("{:x}", ExceptionInfo->ContextRecord->Eip);
+#endif
+
                 Util::CopyToClipboard(clip);
             }
 
@@ -1122,11 +1139,21 @@ namespace Memcury
         {
             if (Exception->ExceptionRecord->ExceptionCode == STATUS_GUARD_PAGE_VIOLATION)
             {
+#if defined _M_X64
                 auto Itr = std::find_if(Hooks.begin(), Hooks.end(), [Rip = Exception->ContextRecord->Rip](const HOOK_INFO& Hook)
                     { return Hook.Original == (void*)Rip; });
+#elif defined _M_IX86
+                auto Itr = std::find_if(Hooks.begin(), Hooks.end(), [Rip = Exception->ContextRecord->Eip](const HOOK_INFO& Hook)
+                    { return Hook.Original == (void*)Rip; });
+#endif
+
                 if (Itr != Hooks.end())
                 {
+#if defined _M_X64
                     Exception->ContextRecord->Rip = (uintptr_t)Itr->Detour;
+#elif defined _M_IX86
+                    Exception->ContextRecord->Eip = (uintptr_t)Itr->Detour;
+#endif
                 }
 
                 Exception->ContextRecord->EFlags |= 0x100; // SINGLE_STEP_FLAG
