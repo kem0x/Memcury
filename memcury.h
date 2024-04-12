@@ -748,7 +748,7 @@ namespace Memcury
 
         // Supports wide and normal strings both std and pointers
         template <typename T = const wchar_t*>
-        static auto FindStringRef(T string) -> Scanner
+        static auto FindStringRef(T string, bool find_first = false) -> Scanner
         {
             PE::Address add { nullptr };
 
@@ -788,6 +788,8 @@ namespace Memcury
                                 if (leaT == string)
                                 {
                                     add = PE::Address(&scanBytes[i]);
+                                    if(find_first)
+                                        break;
                                 }
                             }
                             else
@@ -799,6 +801,8 @@ namespace Memcury
                                     if (wcscmp(string, lea) == 0)
                                     {
                                         add = PE::Address(&scanBytes[i]);
+                                        if(find_first)
+                                            break;
                                     }
                                 }
                                 else
@@ -806,6 +810,8 @@ namespace Memcury
                                     if (strcmp(string, lea) == 0)
                                     {
                                         add = PE::Address(&scanBytes[i]);
+                                        if(find_first)
+                                            break;
                                     }
                                 }
                             }
