@@ -788,7 +788,7 @@ namespace Memcury
                                 if (leaT == string)
                                 {
                                     add = PE::Address(&scanBytes[i]);
-                                    if(find_first)
+                                    if (find_first)
                                         break;
                                 }
                             }
@@ -801,7 +801,7 @@ namespace Memcury
                                     if (wcscmp(string, lea) == 0)
                                     {
                                         add = PE::Address(&scanBytes[i]);
-                                        if(find_first)
+                                        if (find_first)
                                             break;
                                     }
                                 }
@@ -810,7 +810,7 @@ namespace Memcury
                                     if (strcmp(string, lea) == 0)
                                     {
                                         add = PE::Address(&scanBytes[i]);
-                                        if(find_first)
+                                        if (find_first)
                                             break;
                                     }
                                 }
@@ -867,10 +867,15 @@ namespace Memcury
 
             for (auto i = (forward ? 1 : -1); forward ? (i < 2048) : (i > -2048); forward ? i++ : i--)
             {
+                auto& byte = scanBytes[i];
+                auto& next = forward ? scanBytes[i + 1] : scanBytes[i - 1];
+
                 if ( // ASM::byteIsA(scanBytes[i], ASM::MNEMONIC::JMP_REL8) ||
                      // ASM::byteIsA(scanBytes[i], ASM::MNEMONIC::JMP_REL32) ||
                      // ASM::byteIsA(scanBytes[i], ASM::MNEMONIC::JMP_EAX) ||
-                    ASM::byteIsA(scanBytes[i], ASM::MNEMONIC::RETN_REL8) || ASM::byteIsA(scanBytes[i], ASM::MNEMONIC::RETN) || ASM::byteIsA(scanBytes[i], ASM::MNEMONIC::INT3))
+                     // ASM::byteIsA(scanBytes[i], ASM::MNEMONIC::RETN_REL8) ||
+                    (ASM::byteIsA(byte, ASM::MNEMONIC::RETN) && ASM::byteIsA(next, ASM::MNEMONIC::INT3))
+                    || (ASM::byteIsA(byte, ASM::MNEMONIC::INT3) && ASM::byteIsA(next, ASM::MNEMONIC::INT3)))
                 {
                     _address = (uintptr_t)&scanBytes[i + 1];
                     break;
