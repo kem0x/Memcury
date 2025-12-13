@@ -49,6 +49,9 @@
 #include <DbgHelp.h>
 #pragma comment(lib, "Dbghelp.lib")
 
+#undef min
+#undef max
+
 #define MemcuryAssert(cond)                                              \
     if (!(cond))                                                         \
     {                                                                    \
@@ -789,7 +792,7 @@ namespace Memcury
                                 if (leaT == string)
                                 {
                                     add = PE::Address(&scanBytes[i]);
-                                    if(find_first)
+                                    if (find_first)
                                         break;
                                 }
                             }
@@ -802,7 +805,7 @@ namespace Memcury
                                     if (wcscmp(string, lea) == 0)
                                     {
                                         add = PE::Address(&scanBytes[i]);
-                                        if(find_first)
+                                        if (find_first)
                                             break;
                                     }
                                 }
@@ -811,7 +814,7 @@ namespace Memcury
                                     if (strcmp(string, lea) == 0)
                                     {
                                         add = PE::Address(&scanBytes[i]);
-                                        if(find_first)
+                                        if (find_first)
                                             break;
                                     }
                                 }
