@@ -382,7 +382,7 @@ namespace Memcury
                     ++current;
                     if (*current == '?')
                         ++current;
-                    bytes.push_back(-1);
+                    bytes.push_back(0xFF);
                 }
                 else
                 {
@@ -731,7 +731,7 @@ namespace Memcury
                 bool found = true;
                 for (auto j = 0ul; j < s; ++j)
                 {
-                    if (scanBytes[i + j] != d[j] && d[j] != -1)
+                    if (scanBytes[i + j] != d[j] && d[j] != 0xFF)
                     {
                         found = false;
                         break;
@@ -845,7 +845,7 @@ namespace Memcury
 
                 for (int k = 0; k < opcodesToFind.size() && found; k++)
                 {
-                    if (opcodesToFind[k] == -1)
+                    if (opcodesToFind[k] == 0xFF)
                         continue;
                     found = opcodesToFind[k] == scanBytes[i + k];
                 }
