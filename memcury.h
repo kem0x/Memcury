@@ -42,6 +42,7 @@
 #include <vector>
 #include <stdexcept>
 #include <type_traits>
+#include <algorithm>
 #include <intrin.h>
 #include <Windows.h>
 #include <source_location>
